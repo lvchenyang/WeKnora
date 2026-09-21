@@ -8,6 +8,10 @@
 # 全文包在 { } 里：bash 按字节偏移边读边执行，而本脚本自己就在 dison/prod
 # 上、可能被 rebase 换掉。{ } 强制 bash 先把整块读完再执行；不包的话文件
 # 一变，后半段会被静默跳过，而且退出码还是 0。
+# `sh 脚本名` 会绕过 shebang 交给 dash，而下面用了 bash 专有语法（here-string、
+# 数组）。这行必须在 set -euo pipefail 之前 —— dash 不认 pipefail。
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+
 set -euo pipefail
 {
 cd "$(dirname "$0")/.."
