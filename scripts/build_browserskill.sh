@@ -32,7 +32,19 @@ output_dir="$(cd "$output_dir" && pwd)"
 build_dir="$(mktemp -d /tmp/weknora-bsk-build.XXXXXX)"
 trap 'rm -rf "$build_dir"' EXIT
 
-git clone --no-checkout https://github.com/Tencent/BrowserSkill.git "$build_dir/source"
+# 从国内构建时 github 的 TLS 连接会被间歇性掐断（GnuTLS recv error -110），
+# 一次失败整个镜像构建就废，而前面的 rustup 和 apt 已经跑了好几分钟。
+# 退避重试三次；真连不上再失败，日志里能看出是网络而不是代码问题。
+for bsk_attempt in 1 2 3; do
+  git clone --no-checkout https://github.com/Tencent/BrowserSkill.git "$build_dir/source" && break
+  if [ "$bsk_attempt" = 3 ]; then
+    echo "BrowserSkill clone failed after 3 attempts" >&2
+    exit 1
+  fi
+  echo "BrowserSkill clone failed (attempt $bsk_attempt), retrying in $((bsk_attempt * 10))s" >&2
+  rm -rf "$build_dir/source"
+  sleep "$((bsk_attempt * 10))"
+done
 git -C "$build_dir/source" checkout --detach "$source_commit"
 (
   cd "$build_dir/source"
