@@ -6,6 +6,10 @@
 # 全文包在 { } 里，这条是必须的：下面的 git reset --hard 会把本文件自己
 # 换成新版本，而 bash 是按字节偏移边读边执行的。不包的话文件一变，后半段
 # 会被静默跳过，退出码还是 0 —— 看起来成功，实际只跑了一半。
+# `sh 脚本名` 会绕过 shebang 交给 dash，而下面用了 bash 专有语法（here-string、
+# 数组）。这行必须在 set -euo pipefail 之前 —— dash 不认 pipefail。
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+
 set -euo pipefail
 {
 cd "$(dirname "$0")/.."
