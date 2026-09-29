@@ -36,7 +36,21 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 git fetch origin
-git fetch fork
+git fetch --prune fork
+
+# 在 rebase 改写提交前，核对本次 fetch 得到的远端版本。允许已经手工
+# rebase 完成的等价提交（例如解决冲突后重跑），但不能丢掉远端独有改动。
+# 固定 SHA 同时作为 push 的租约；后续 IDE/后台 fetch 不能放宽本次检查。
+dison_expected_tip=$(git rev-parse --verify refs/remotes/fork/dison/prod 2>/dev/null || true)
+if [ -n "$dison_expected_tip" ]; then
+  dison_remote_only=$(git rev-list --left-only --cherry-pick "$dison_expected_tip...HEAD")
+  if [ -n "$dison_remote_only" ]; then
+    echo "✗ fork/dison/prod 有本地尚未纳入的提交，已停止同步，未推送或 rebase。" >&2
+    git --no-pager log --left-only --cherry-pick --oneline "$dison_expected_tip...HEAD" >&2
+    echo "  先核对并合并远端改动，再重跑本脚本；不要直接强推覆盖。" >&2
+    exit 1
+  fi
+fi
 
 # 本地 main 快进到上游（不切分支）；fork/main 跟着走。两者都是纯快进。
 git fetch origin main:main
@@ -50,7 +64,10 @@ if ! git rebase origin/main; then
   exit 1
 fi
 
-git push --force-with-lease fork dison/prod
+if ! git push "--force-with-lease=refs/heads/dison/prod:$dison_expected_tip" fork HEAD:refs/heads/dison/prod; then
+  echo "✗ 推送未完成。若远端已更新，请先 fetch 并核对远端改动；本地 rebase 结果已保留。" >&2
+  exit 1
+fi
 
 echo
 echo "✓ dison/prod = origin/main($(git rev-parse --short origin/main)) + $(git rev-list --count origin/main..dison/prod) 个定制提交"
