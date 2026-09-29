@@ -199,27 +199,31 @@
                 {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
               </t-button>
 
-              <div class="register-cta" v-if="registrationEnabled">
-                <div class="register-cta__divider">
-                  <span>{{ $t('auth.firstTime') }}</span>
+              <div v-if="wecomEnabled || oidcEnabled" class="alternative-login">
+                <div class="alternative-login__divider">
+                  <span>{{ $t('auth.orContinueWith') }}</span>
                 </div>
-                <t-button theme="default" variant="outline" size="large" block class="register-cta__button"
-                  :disabled="loading" @click="toggleMode">
+                <div class="alternative-login__buttons">
+                  <t-button v-if="wecomEnabled" type="button" theme="default" variant="outline" size="large" block
+                    :disabled="loading || oidcLoading" class="provider-button wecom-button" @click="startWeComLogin">
+                    <img :src="wecomLogo" class="provider-button__icon" alt="" aria-hidden="true" />
+                    <span>{{ $t('wecom.login') }}</span>
+                  </t-button>
+                  <t-button v-if="oidcEnabled" type="button" theme="default" variant="outline" size="large" block
+                    :loading="oidcLoading" :disabled="loading" class="provider-button" @click="handleOIDCLogin">
+                    <t-icon v-if="!oidcLoading" name="lock-on" class="provider-button__icon" aria-hidden="true" />
+                    <span>{{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}</span>
+                  </t-button>
+                </div>
+              </div>
+
+              <div v-if="registrationEnabled" class="register-cta">
+                <span>{{ $t('auth.firstTime') }}</span>
+                <t-button type="button" theme="primary" variant="text" class="register-cta__button"
+                  :disabled="loading || oidcLoading" @click="toggleMode">
                   {{ $t('auth.createAccount') }}
                 </t-button>
               </div>
-
-              <t-button v-if="wecomEnabled" theme="default" size="large" block :disabled="loading || oidcLoading"
-                class="oidc-button" @click="startWeComLogin">{{ $t('wecom.login') }}</t-button>
-
-              <div v-if="oidcEnabled" class="oidc-divider">
-                <span>{{ $t('auth.orContinueWith') }}</span>
-              </div>
-
-              <t-button v-if="oidcEnabled" theme="default" size="large" block :loading="oidcLoading" :disabled="loading"
-                class="oidc-button" @click="handleOIDCLogin">
-                {{ oidcLoading ? $t('auth.redirectingToOIDC') : oidcLoginText }}
-              </t-button>
             </t-form>
 
             <!-- Features list -->
@@ -349,6 +353,7 @@ import {
   type InviteLookup,
 } from '@/api/auth'
 import { getWeComConfig } from '@/api/auth/wecom'
+import wecomLogo from '@/assets/img/im/wecom.svg'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
@@ -1399,48 +1404,26 @@ onMounted(async () => {
   font-family: var(--app-font-family);
 }
 
-/* 注册入口：从底部小字链接升级为带分隔线的醒目次级按钮，
-   让首次访客一眼就能找到「创建账户」。 */
 .register-cta {
-  margin-top: 8px;
-
-  &__divider {
-    position: relative;
-    text-align: center;
-    margin: 4px 0 14px;
-    color: var(--td-text-color-secondary);
-    font-size: var(--app-text-md);
-    font-family: var(--app-font-family);
-
-    span {
-      position: relative;
-      z-index: 1;
-      padding: 0 12px;
-      background: rgba(255, 255, 255, 0.97);
-    }
-
-    &::before {
-      content: '';
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 50%;
-      border-top: 1px solid var(--td-component-stroke);
-    }
-  }
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  margin-top: 16px;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-base);
 
   &__button {
-    height: 46px;
+    min-height: 44px;
+    padding: 0 8px;
     border-radius: var(--app-radius-md);
-    font-size: var(--app-text-lg);
+    font-size: inherit;
     font-weight: 500;
-    border-color: var(--td-brand-color);
-    color: var(--td-brand-color);
 
-    &:hover {
-      border-color: var(--td-brand-color-active);
-      color: var(--td-brand-color-active);
-      background: var(--td-success-color-light);
+    &:focus-visible {
+      outline: 2px solid var(--td-brand-color);
+      outline-offset: 2px;
     }
   }
 }
@@ -1521,35 +1504,89 @@ onMounted(async () => {
   margin: 20px 0 16px 0;
 }
 
-.oidc-divider {
-  position: relative;
-  margin: 4px 0 6px;
-  text-align: center;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
+.alternative-login {
+  margin-top: 4px;
 
-  span {
-    position: relative;
-    z-index: 1;
-    padding: 0 12px;
-    background: rgba(255, 255, 255, 0.95);
+  &__divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    color: var(--td-text-color-secondary);
+    font-size: var(--app-text-sm);
+    text-align: center;
+
+    &::before,
+    &::after {
+      content: '';
+      flex: 1;
+      border-top: 1px solid var(--td-component-stroke);
+    }
   }
 
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 50%;
-    border-top: 1px solid var(--td-component-stroke);
+  &__buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 }
 
-.oidc-button {
-  height: 46px;
+.provider-button {
+  height: auto;
+  min-height: 48px;
+  padding: 10px 16px;
   border-radius: var(--app-radius-md);
   font-size: var(--app-text-lg);
   font-weight: 500;
+  line-height: 1.5;
+  white-space: normal;
+  transition: background-color var(--app-motion-base), border-color var(--app-motion-base), color var(--app-motion-base);
+
+  :deep(.t-button__text) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  &__icon {
+    flex: 0 0 24px;
+    width: 24px;
+    height: 24px;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 3px;
+  }
+}
+
+.wecom-button {
+  --wecom-bg: #f4f9ff;
+  --wecom-border: #c7def7;
+  --wecom-text: #155a9d;
+  --wecom-hover-bg: #e8f3ff;
+  --wecom-accent: #0082ef;
+  background: var(--wecom-bg);
+  border-color: var(--wecom-border);
+  color: var(--wecom-text);
+
+  &:not(.t-is-disabled):hover,
+  &:not(.t-is-disabled):active {
+    background: var(--wecom-hover-bg);
+    border-color: var(--wecom-accent);
+    color: var(--wecom-text);
+  }
+
+  &:focus-visible {
+    outline-color: var(--wecom-accent);
+  }
+
+  &.t-is-disabled {
+    opacity: 0.55;
+  }
 }
 
 .form-footer {
@@ -1850,8 +1887,12 @@ html[theme-mode="dark"] {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4) !important;
   }
 
-  .register-cta__divider span {
-    background: rgba(36, 36, 36, 0.97);
+  .wecom-button {
+    --wecom-bg: #152b40;
+    --wecom-border: #2b5275;
+    --wecom-text: #a8d4ff;
+    --wecom-hover-bg: #1b3852;
+    --wecom-accent: #61b4ff;
   }
 
   .form-content .t-input {
