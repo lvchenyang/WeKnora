@@ -336,3 +336,78 @@ func TestWeComMigrationRollbackPreservesAccounts(t *testing.T) {
 		t.Fatal("rollback left identities table")
 	}
 }
+
+func TestWeComMigrationRollbackRevokesExternalSessions(t *testing.T) {
+	ctx := context.Background()
+	db := wecomDB(t)
+	repo := &authTokenRepository{db: db, wecomCorpID: "corp"}
+	identity := identityFixture(t, db)
+	access, refresh := sessionPair(identity)
+	if err := repo.CreateTokenPair(ctx, access, refresh, types.SessionIssue{Grant: grantFixture(t, db, identity)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rollback must preserve password/OIDC sessions, including legacy rows
+	// with an empty auth_method, while revoking both external credentials.
+	var localTokens []*types.AuthToken
+	for _, method := range []string{"", "oidc"} {
+		a, b := sessionPair(identity)
+		for _, token := range []*types.AuthToken{a, b} {
+			token.AuthMethod = method
+			token.ExternalIdentityID = ""
+			token.ExternalIdentityVersion = 0
+		}
+		if err := repo.CreateTokenPair(ctx, a, b, types.SessionIssue{}); err != nil {
+			t.Fatal(err)
+		}
+		localTokens = append(localTokens, a, b)
+	}
+
+	// Also reject inconsistent external rows rather than laundering them
+	// into local sessions by erasing their identity ID.
+	inconsistent, _ := sessionPair(identity)
+	inconsistent.AuthMethod = ""
+	if err := db.Create(inconsistent).Error; err != nil {
+		t.Fatal(err)
+	}
+	externalTokens := []*types.AuthToken{access, refresh, inconsistent}
+	prefix := "../../../migrations/sqlite/000034_wecom_login"
+	if os.Getenv("WECOM_TEST_POSTGRES_DSN") != "" {
+		prefix = "../../../migrations/versioned/000115_wecom_login"
+	}
+	for _, direction := range []string{"down", "up"} {
+		sql, err := os.ReadFile(prefix + "." + direction + ".sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Exec(string(sql)).Error; err != nil {
+			t.Fatal(err)
+		}
+		for _, token := range append(externalTokens, localTokens...) {
+			var stored types.AuthToken
+			if err := db.First(&stored, "id = ?", token.ID).Error; err != nil {
+				t.Fatal(err)
+			}
+			wantRevoked := token.ExternalIdentityID != ""
+			if stored.IsRevoked != wantRevoked {
+				t.Fatalf("%s migration: method=%q type=%s revoked=%v, want %v", direction, token.AuthMethod, token.TokenType, stored.IsRevoked, wantRevoked)
+			}
+			if direction == "up" && (repo.ValidateTokenIdentity(ctx, &stored) == nil) == wantRevoked {
+				t.Fatalf("up migration: unexpected authorization for method=%q type=%s", token.AuthMethod, token.TokenType)
+			}
+		}
+	}
+
+	// Re-upgrading restores empty metadata defaults. A pre-rollback refresh
+	// must still fail atomically rather than mint a fresh ordinary session.
+	oldRefresh, err := repo.GetTokenByID(ctx, refresh.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newAccess, newRefresh := *oldRefresh, *oldRefresh
+	newAccess.ID, newAccess.Token, newAccess.TokenType, newAccess.IsRevoked = uuid.NewString(), uuid.NewString(), "access_token", false
+	newRefresh.ID, newRefresh.Token, newRefresh.IsRevoked = uuid.NewString(), uuid.NewString(), false
+	if err := repo.CreateTokenPair(ctx, &newAccess, &newRefresh, types.SessionIssue{Source: oldRefresh, RefreshToken: oldRefresh.Token}); err == nil {
+		t.Fatal("pre-rollback WeCom refresh minted a new local session")
+	}
+}
