@@ -1077,6 +1077,10 @@ func (s *userService) generateTokensForTenant(
 	user *types.User,
 	activeTenantID uint64,
 ) (accessToken, refreshToken string, err error) {
+	return s.issueTokensForTenant(ctx, user, activeTenantID, types.SessionIssue{})
+}
+
+func (s *userService) issueTokensForTenant(ctx context.Context, user *types.User, activeTenantID uint64, issue types.SessionIssue) (accessToken, refreshToken string, err error) {
 	// Generate access token (expires in 24 hours)
 	accessClaims := jwt.MapClaims{
 		"user_id":   user.ID,
@@ -1085,6 +1089,7 @@ func (s *userService) generateTokensForTenant(
 		"exp":       time.Now().Add(24 * time.Hour).Unix(),
 		"iat":       time.Now().Unix(),
 		"type":      "access",
+		"jti":       uuid.NewString(),
 	}
 
 	accessTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
@@ -1099,6 +1104,7 @@ func (s *userService) generateTokensForTenant(
 		"exp":     time.Now().Add(7 * 24 * time.Hour).Unix(),
 		"iat":     time.Now().Unix(),
 		"type":    "refresh",
+		"jti":     uuid.NewString(),
 	}
 
 	refreshTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
@@ -1130,13 +1136,29 @@ func (s *userService) generateTokensForTenant(
 
 	// Persist before returning the pair: a signed token the database has no row
 	// for is rejected by ValidateToken / RefreshToken on the very next request,
-	// so swallowing a write error turns a transient database failure into a
-	// login that looks successful and then loses the session immediately.
-	if err := s.tokenRepo.CreateToken(ctx, accessTokenRecord); err != nil {
-		return "", "", fmt.Errorf("persist access token: %w", err)
+	// so a failed write must fail issuance instead of turning a transient
+	// database failure into a login that looks successful and then loses the
+	// session immediately. The pair write is one transaction and also consumes
+	// the old refresh token or browser-bound grant it is derived from.
+	family := uuid.NewString()
+	for _, record := range []*types.AuthToken{accessTokenRecord, refreshTokenRecord} {
+		record.SessionFamilyID = family
+		if source := issue.Source; source != nil {
+			record.AuthMethod = source.AuthMethod
+			record.ExternalIdentityID = source.ExternalIdentityID
+			record.ExternalIdentityVersion = source.ExternalIdentityVersion
+			if source.SessionFamilyID != "" {
+				record.SessionFamilyID = source.SessionFamilyID
+			}
+		}
+		if grant := issue.Grant; grant != nil {
+			record.AuthMethod = "wecom"
+			record.ExternalIdentityID = grant.IdentityID
+			record.ExternalIdentityVersion = grant.IdentityVersion
+		}
 	}
-	if err := s.tokenRepo.CreateToken(ctx, refreshTokenRecord); err != nil {
-		return "", "", fmt.Errorf("persist refresh token: %w", err)
+	if err := s.tokenRepo.CreateTokenPair(ctx, accessTokenRecord, refreshTokenRecord, issue); err != nil {
+		return "", "", err
 	}
 
 	return accessToken, refreshToken, nil
@@ -1199,18 +1221,22 @@ func (s *userService) SwitchTenant(
 		return nil, fmt.Errorf("record last-active-tenant preference: %w", err)
 	}
 
-	accessToken, refreshToken, err := s.generateTokensForTenant(ctx, user, targetTenantID)
+	issue := types.SessionIssue{RefreshToken: currentRefreshToken}
+	if bearer, _ := ctx.Value(types.AuthSourceContextKey).(string); bearer != "" {
+		source, err := s.tokenRepo.GetTokenByValue(ctx, bearer)
+		if err != nil || source == nil || source.UserID != user.ID || source.TokenType != "access_token" {
+			return nil, errors.New("invalid originating session")
+		}
+		if err := s.validateSessionIdentity(ctx, source); err != nil {
+			return nil, err
+		}
+		issue.Source = source
+	} else if currentRefreshToken != "" {
+		return nil, errors.New("originating access token required")
+	}
+	accessToken, refreshToken, err := s.issueTokensForTenant(ctx, user, targetTenantID, issue)
 	if err != nil {
 		return nil, fmt.Errorf("generate tokens: %w", err)
-	}
-
-	// Best-effort revoke of the previous refresh token. Failure is
-	// logged but not fatal — the new tokens are already issued and the
-	// old refresh token will expire naturally.
-	if strings.TrimSpace(currentRefreshToken) != "" {
-		if err := s.RevokeToken(ctx, currentRefreshToken); err != nil {
-			logger.Warnf(ctx, "Failed to revoke previous refresh token during tenant switch: %v", err)
-		}
 	}
 
 	memberships := s.buildMembershipsForUser(ctx, user, tenant)
@@ -1295,11 +1321,20 @@ func (s *userService) ValidateToken(ctx context.Context, tokenString string) (*t
 		return nil, 0, errors.New("refresh token cannot be used as access token")
 	}
 
+	if tokenRecord.UserID != userID {
+		return nil, 0, errors.New("token owner mismatch")
+	}
+	if err := s.validateSessionIdentity(ctx, tokenRecord); err != nil {
+		return nil, 0, err
+	}
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	if user == nil || !user.IsActive {
+		return nil, 0, errors.New("account is inactive")
+	}
 	// Extract active tenant from the JWT. Anything missing or unparseable
 	// falls back to the user's home tenant so old tokens (and tokens issued
 	// by code paths that don't yet set the claim) keep working.
@@ -1328,6 +1363,9 @@ func (s *userService) GetAccessTokenByValue(ctx context.Context, tokenString str
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateSessionIdentity(ctx, token); err != nil {
+		return nil, err
+	}
 	return redactAuthToken(token), nil
 }
 
@@ -1339,6 +1377,9 @@ func (s *userService) GetAccessTokenByID(ctx context.Context, id string) (*types
 	}
 	token, err := s.tokenRepo.GetTokenByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.validateSessionIdentity(ctx, token); err != nil {
 		return nil, err
 	}
 	return redactAuthToken(token), nil
@@ -1457,12 +1498,13 @@ func (s *userService) RefreshToken(
 		return "", "", err
 	}
 
-	// Revoke old refresh token
-	tokenRecord.IsRevoked = true
-	_ = s.tokenRepo.UpdateToken(ctx, tokenRecord)
-
-	// Generate new tokens
-	return s.GenerateTokens(ctx, user)
+	if user == nil || !user.IsActive || tokenRecord.UserID != user.ID {
+		return "", "", errors.New("account is inactive or token owner mismatch")
+	}
+	if err := s.validateSessionIdentity(ctx, tokenRecord); err != nil {
+		return "", "", err
+	}
+	return s.issueTokensForTenant(ctx, user, s.resolveLoginTenantID(ctx, user), types.SessionIssue{Source: tokenRecord, RefreshToken: refreshTokenString})
 }
 
 // Logout invalidates every outstanding session for the user identified by

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
@@ -280,12 +281,17 @@ func (r *userRepository) SearchUsers(ctx context.Context, query string, limit in
 
 // authTokenRepository implements auth token repository interface
 type authTokenRepository struct {
-	db *gorm.DB
+	wecomCorpID string
+	db          *gorm.DB
 }
 
 // NewAuthTokenRepository creates a new auth token repository
-func NewAuthTokenRepository(db *gorm.DB) interfaces.AuthTokenRepository {
-	return &authTokenRepository{db: db}
+func NewAuthTokenRepository(db *gorm.DB, cfg *config.Config) interfaces.AuthTokenRepository {
+	corp := ""
+	if cfg.WeComAuth != nil {
+		corp = cfg.WeComAuth.CorpID
+	}
+	return &authTokenRepository{db: db, wecomCorpID: corp}
 }
 
 // CreateToken creates an auth token
@@ -343,5 +349,13 @@ func (r *authTokenRepository) DeleteExpiredTokens(ctx context.Context) error {
 
 // RevokeTokensByUserID revokes all tokens for a user
 func (r *authTokenRepository) RevokeTokensByUserID(ctx context.Context, userID string) error {
-	return r.db.WithContext(ctx).Model(&types.AuthToken{}).Where("user_id = ?", userID).Update("is_revoked", true).Error
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&types.User{}).Where("id = ?", userID).UpdateColumn("id", gorm.Expr("id")).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&types.AuthToken{}).Where("user_id = ?", userID).Update("is_revoked", true).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", userID).Delete(&types.WeComFlow{}).Error
+	})
 }

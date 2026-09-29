@@ -73,6 +73,7 @@
         <t-tab-panel value="security" :label="sectionTabLabel('security')" />
         <t-tab-panel v-if="hasUnknownSettings" value="other" :label="sectionTabLabel('other')" />
       </t-tabs>
+      <WeComBindings v-if="activeSettingsSection === 'access'" />
 
       <section class="settings-section-panel" :aria-label="activeSectionTitle">
         <div class="settings-section-intro"
@@ -338,6 +339,7 @@ import {
   revokeSystemAdmin,
   type SystemSettingItem,
 } from '@/api/system'
+import WeComBindings from './WeComBindings.vue'
 import CreateUserDialog from './CreateUserDialog.vue'
 import ResetPasswordDialog from './ResetPasswordDialog.vue'
 import { useAuthStore } from '@/stores/auth'

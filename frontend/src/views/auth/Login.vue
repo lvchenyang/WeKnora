@@ -209,6 +209,9 @@
                 </t-button>
               </div>
 
+              <t-button v-if="wecomEnabled" theme="default" size="large" block :disabled="loading || oidcLoading"
+                class="oidc-button" @click="startWeComLogin">{{ $t('wecom.login') }}</t-button>
+
               <div v-if="oidcEnabled" class="oidc-divider">
                 <span>{{ $t('auth.orContinueWith') }}</span>
               </div>
@@ -345,6 +348,7 @@ import {
   registerByInvite,
   type InviteLookup,
 } from '@/api/auth'
+import { getWeComConfig } from '@/api/auth/wecom'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
@@ -354,6 +358,8 @@ import screenshot2 from '@/assets/img/screenshot-2.svg'
 import screenshot3 from '@/assets/img/screenshot-3.svg'
 import screenshot4 from '@/assets/img/screenshot-4.svg'
 
+const wecomEnabled = ref(false)
+const startWeComLogin = () => { window.location.assign("/api/v1/auth/wecom/start") }
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
@@ -583,6 +589,7 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
 const getBackendOIDCRedirectURI = () => `${window.location.origin}/api/v1/auth/oidc/callback`
 
 const loadOIDCConfig = async () => {
+  getWeComConfig().then(config => { wecomEnabled.value = config.enabled }).catch(() => { wecomEnabled.value = false })
   try {
     const response = await getOIDCConfig()
     oidcEnabled.value = !!response.success && !!response.enabled

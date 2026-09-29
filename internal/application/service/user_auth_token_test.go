@@ -126,7 +126,7 @@ func newAuthTestUserService(tokenRepo *stubAuthTokenRepo) *userService {
 	return &userService{
 		userRepo: &stubUserRepoForAuth{
 			users: map[string]*types.User{
-				"user-1": {ID: "user-1", TenantID: 1},
+				"user-1": {ID: "user-1", TenantID: 1, IsActive: true},
 			},
 		},
 		tokenRepo: tokenRepo,
@@ -407,4 +407,17 @@ func TestGetAccessTokenLookupsRedactJWT(t *testing.T) {
 	if byID.ID != "tok-1" || byID.Token != "" {
 		t.Fatalf("GetAccessTokenByID = %+v, want id tok-1 with redacted token", byID)
 	}
+}
+
+func (s *stubAuthTokenRepo) CreateTokenPair(ctx context.Context, a, b *types.AuthToken, issue types.SessionIssue) error {
+	if issue.Source != nil {
+		issue.Source.IsRevoked = true
+	}
+	if err := s.CreateToken(ctx, a); err != nil {
+		return err
+	}
+	return s.CreateToken(ctx, b)
+}
+func (s *stubAuthTokenRepo) ValidateTokenIdentity(context.Context, *types.AuthToken) error {
+	return nil
 }

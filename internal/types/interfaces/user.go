@@ -8,6 +8,7 @@ import (
 
 // UserService defines the user service interface
 type UserService interface {
+	LoginWithWeCom(ctx context.Context, grant *types.WeComLoginGrant) (*types.LoginResponse, error)
 	// Register creates a new user account
 	Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error)
 	// Login authenticates a user and returns tokens
@@ -140,6 +141,8 @@ type UserRepository interface {
 
 // AuthTokenRepository defines the auth token repository interface
 type AuthTokenRepository interface {
+	CreateTokenPair(ctx context.Context, access, refresh *types.AuthToken, issue types.SessionIssue) error
+	ValidateTokenIdentity(ctx context.Context, token *types.AuthToken) error
 	// CreateToken creates an auth token
 	CreateToken(ctx context.Context, token *types.AuthToken) error
 	// GetTokenByValue gets a token by its value
