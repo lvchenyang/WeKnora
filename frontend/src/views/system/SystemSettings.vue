@@ -81,6 +81,8 @@
         <div id="system-users-toolbar" class="settings-toolbar" v-show="activeSettingsSection === 'users'" />
       </div>
 
+      <WeComBindings v-if="activeSettingsSection === 'access'" />
+
       <UserManagement id="system-settings-users" role="tabpanel" aria-labelledby="system-settings-tab-users"
         v-show="activeSettingsSection === 'users'" :active="activeSettingsSection === 'users'"
         @announced="saveAnnouncement = $event" />
@@ -252,6 +254,7 @@ import {
   type SystemSettingItem,
 } from '@/api/system'
 import UserManagement from './UserManagement.vue'
+import WeComBindings from './WeComBindings.vue'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { PASSWORD_SPECIAL_CHARS } from '@/utils/passwordPolicy'
 import { isSettingValueDirty, resolveCurrentSetting } from './systemSettingsEdit'

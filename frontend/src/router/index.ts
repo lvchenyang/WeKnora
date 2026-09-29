@@ -54,6 +54,12 @@ const router = createRouter({
       component: () => import("../views/auth/Login.vue"),
       meta: { requiresAuth: false, requiresInit: false }
     },
+    {
+      path: '/login/wecom/complete',
+      name: 'wecomComplete',
+      component: () => import('../views/auth/WeComComplete.vue'),
+      meta: { requiresAuth: false, requiresInit: false },
+    },
     // Embed chat is a separate entry (embed.html + embed-main.ts), not this SPA.
     {
       path: "/register",

@@ -55,8 +55,8 @@ func TestLoginFailsWhenTokensCannotBePersisted(t *testing.T) {
 	require.Equal(t, "Login failed", resp.Message)
 }
 
-// Either half of the pair failing must abort issuance: both rows are checked
-// before the caller sees a token.
+// Issuance persists the pair as one transaction, so a failure on either row
+// aborts issuance: no token is handed out unless both rows are durable.
 func TestGenerateTokensFailsWhenEitherTokenCannotBePersisted(t *testing.T) {
 	ctx := context.Background()
 	user := persistedTestUser(t, 1, "user@example.com", "Secure9!")
@@ -64,11 +64,10 @@ func TestGenerateTokensFailsWhenEitherTokenCannotBePersisted(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		createErrs []error
-		wantErr    string
 	}{
-		{"access token", []error{errTokenWrite}, "persist access token"},
-		{"refresh token", []error{nil, errTokenWrite}, "persist refresh token"},
-		{"both", []error{errTokenWrite, errTokenWrite}, "persist access token"},
+		{"access token", []error{errTokenWrite}},
+		{"refresh token", []error{nil, errTokenWrite}},
+		{"both", []error{errTokenWrite, errTokenWrite}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tokenRepo := &stubAuthTokenRepo{tokens: map[string]*types.AuthToken{}, createErrs: tt.createErrs}
@@ -76,7 +75,7 @@ func TestGenerateTokensFailsWhenEitherTokenCannotBePersisted(t *testing.T) {
 
 			access, refresh, err := svc.GenerateTokens(ctx, user)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), tt.wantErr)
+			require.ErrorIs(t, err, errTokenWrite)
 			require.Empty(t, access, "a token that was not persisted must not be handed out")
 			require.Empty(t, refresh, "a token that was not persisted must not be handed out")
 		})

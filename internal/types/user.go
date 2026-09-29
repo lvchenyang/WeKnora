@@ -142,6 +142,11 @@ type User struct {
 
 // AuthToken represents an authentication token
 type AuthToken struct {
+	AuthMethod              string `json:"-"`
+	ExternalIdentityID      string `json:"-"`
+	ExternalIdentityVersion int64  `json:"-"`
+	SessionFamilyID         string `json:"-"`
+
 	// Unique identifier of the token
 	ID string `json:"id"         gorm:"type:varchar(36);primaryKey"`
 	// User ID that owns this token

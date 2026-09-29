@@ -428,3 +428,16 @@ func TestValidateTokenRejectsDisabledAccount(t *testing.T) {
 		t.Fatalf("disabled account with unrevoked token: got %v", err)
 	}
 }
+
+func (s *stubAuthTokenRepo) CreateTokenPair(ctx context.Context, a, b *types.AuthToken, issue types.SessionIssue) error {
+	if issue.Source != nil {
+		issue.Source.IsRevoked = true
+	}
+	if err := s.CreateToken(ctx, a); err != nil {
+		return err
+	}
+	return s.CreateToken(ctx, b)
+}
+func (s *stubAuthTokenRepo) ValidateTokenIdentity(context.Context, *types.AuthToken) error {
+	return nil
+}

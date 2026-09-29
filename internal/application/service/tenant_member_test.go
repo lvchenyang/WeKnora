@@ -650,3 +650,7 @@ func TestTenantRole_HasPermission(t *testing.T) {
 func (r *cleanupUserRepo) SetUserActive(context.Context, string, string, bool) (*types.User, error) {
 	panic("unexpected SetUserActive call")
 }
+func (r *cleanupTokenRepo) CreateTokenPair(context.Context, *types.AuthToken, *types.AuthToken, types.SessionIssue) error {
+	return nil
+}
+func (r *cleanupTokenRepo) ValidateTokenIdentity(context.Context, *types.AuthToken) error { return nil }
