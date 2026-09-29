@@ -106,3 +106,9 @@ func TestSanitizeQueryRedactsTerminalTicket(t *testing.T) {
 		t.Fatalf("sanitizeQuery() leaked the ticket: %q", got)
 	}
 }
+
+func TestWeComPreviewSecretRedaction(t *testing.T) {
+	if got := sanitizeBody(`{"preview_token":"private-preview","subject":"alice"}`); got != `{"preview_token":"***","subject":"alice"}` {
+		t.Fatal(got)
+	}
+}

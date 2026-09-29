@@ -34,10 +34,14 @@ var (
 
 // 无需认证的API列表
 var noAuthAPI = map[string][]string{
-	"/health":                 {"GET"},
-	"/api/v1/auth/register":   {"POST"},
-	"/api/v1/auth/login":      {"POST"},
-	"/api/v1/auth/auto-setup": {"POST"},
+	"/api/v1/auth/wecom/config":   {"GET"},
+	"/api/v1/auth/wecom/start":    {"GET"},
+	"/api/v1/auth/wecom/callback": {"GET"},
+	"/api/v1/auth/wecom/exchange": {"POST"},
+	"/health":                     {"GET"},
+	"/api/v1/auth/register":       {"POST"},
+	"/api/v1/auth/login":          {"POST"},
+	"/api/v1/auth/auto-setup":     {"POST"},
 	// Share-link surfaces accept a plaintext invite token from anonymous
 	// callers (an invitee who hasn't registered yet). They are registered
 	// as public routes in RegisterAuthRoutes and rate-limited by IP, so the
@@ -149,6 +153,7 @@ func Auth(
 			bearerPresented = true
 			user, jwtTenantID, err := userService.ValidateToken(c.Request.Context(), token)
 			if err == nil && user != nil {
+				c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), types.AuthSourceContextKey, token))
 				if authenticateJWTUser(c, tenantService, memberService, cfg, user, jwtTenantID) {
 					c.Next()
 				}

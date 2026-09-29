@@ -238,3 +238,8 @@ func TestSwitchTenantNonMemberWritesNoPreference(t *testing.T) {
 		t.Fatalf("UpdateUser calls = %d, want 0 (no preference write before validation)", repo.updateCalls)
 	}
 }
+
+func (s *countingAuthTokenRepo) CreateTokenPair(context.Context, *types.AuthToken, *types.AuthToken, types.SessionIssue) error {
+	s.createCalls += 2
+	return nil
+}
