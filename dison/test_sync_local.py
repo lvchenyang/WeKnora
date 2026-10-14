@@ -123,6 +123,37 @@ class SyncLocalTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assert_contains(self.fork, "dison/prod", "local.txt", "local work")
 
+    def test_reviewed_patch_rewrite_passes_with_allowlist(self):
+        # 解冲突时补丁被改写（不再等价），只有清单里的 SHA 才放行。
+        original = self.commit(self.local, "local.txt", "local work")
+        self.git(self.local, "push", "fork", "dison/prod")
+        self.advance_upstream()
+        self.git(self.local, "fetch", "origin")
+        self.git(self.local, "rebase", "origin/main")
+        (self.local / "adapted.txt").write_text("resolved differently\n")
+        self.git(self.local, "add", "adapted.txt")
+        self.git(self.local, "commit", "--amend", "--no-edit")
+
+        blocked = self.sync()
+        self.assertNotEqual(blocked.returncode, 0, blocked.stdout)
+        self.assertIn("本地尚未纳入", blocked.stdout)
+        self.assertEqual(self.git(self.fork, "rev-parse", "dison/prod"), original)
+
+        allowlist = self.local / "dison/sync-reviewed-commits"
+        wrong = self.git(self.local, "rev-parse", "HEAD")
+        allowlist.write_text(wrong + "\n")
+        still_blocked = self.sync()
+        self.assertNotEqual(still_blocked.returncode, 0, still_blocked.stdout)
+        self.assertEqual(self.git(self.fork, "rev-parse", "dison/prod"), original)
+
+        # 注释和空行不得让过滤失效（空行是 grep -f 的全局匹配陷阱）。
+        allowlist.write_text("# reviewed\n\n" + original + "\n")
+        result = self.sync()
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("已核对清单放行", result.stdout)
+        self.assert_contains(self.fork, "dison/prod", "local.txt", "local work")
+        self.assert_contains(self.fork, "dison/prod", "adapted.txt", "resolved differently")
+
     def test_missing_remote_branch_uses_creation_lease(self):
         self.git(self.fork, "update-ref", "-d", "refs/heads/dison/prod")
         self.commit(self.local, "local.txt", "local work")

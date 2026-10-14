@@ -40,15 +40,29 @@ git fetch --prune fork
 
 # 在 rebase 改写提交前，核对本次 fetch 得到的远端版本。允许已经手工
 # rebase 完成的等价提交（例如解决冲突后重跑），但不能丢掉远端独有改动。
-# 固定 SHA 同时作为 push 的租约；后续 IDE/后台 fetch 不能放宽本次检查。
+# 补丁在解冲突时被上游演进改写、已人工核对"意图已并入"的提交，把其远端
+# SHA 逐行写进 dison/sync-reviewed-commits 放行；只影响本检查，push 租约
+# 不变。固定 SHA 同时作为 push 的租约；后续 IDE/后台 fetch 不能放宽本次检查。
 dison_expected_tip=$(git rev-parse --verify refs/remotes/fork/dison/prod 2>/dev/null || true)
 if [ -n "$dison_expected_tip" ]; then
   dison_remote_only=$(git rev-list --left-only --cherry-pick "$dison_expected_tip...HEAD")
   if [ -n "$dison_remote_only" ]; then
-    echo "✗ fork/dison/prod 有本地尚未纳入的提交，已停止同步，未推送或 rebase。" >&2
-    git --no-pager log --left-only --cherry-pick --oneline "$dison_expected_tip...HEAD" >&2
-    echo "  先核对并合并远端改动，再重跑本脚本；不要直接强推覆盖。" >&2
-    exit 1
+    dison_reviewed=$(grep -E '^[0-9a-f]{40}$' dison/sync-reviewed-commits 2>/dev/null || true)
+    if [ -n "$dison_reviewed" ]; then
+      dison_skipped=$(printf '%s\n' "$dison_remote_only" | grep -c -x -F -f <(printf '%s\n' "$dison_reviewed") || true)
+      dison_skipped=${dison_skipped:-0}
+      dison_remote_only=$(printf '%s\n' "$dison_remote_only" | grep -v -x -F -f <(printf '%s\n' "$dison_reviewed") || true)
+      if [ "$dison_skipped" -gt 0 ]; then
+        echo "  已核对清单放行 $dison_skipped 个远端提交（dison/sync-reviewed-commits）"
+      fi
+    fi
+    if [ -n "$dison_remote_only" ]; then
+      echo "✗ fork/dison/prod 有本地尚未纳入的提交，已停止同步，未推送或 rebase。" >&2
+      git --no-pager log --no-walk --oneline $dison_remote_only >&2
+      echo "  先核对并合并远端改动，再重跑本脚本；不要直接强推覆盖。" >&2
+      echo "  若个别提交属“解冲突时补丁被等价改写”，核对无误后把其 SHA 写入 dison/sync-reviewed-commits 再重跑。" >&2
+      exit 1
+    fi
   fi
 fi
 

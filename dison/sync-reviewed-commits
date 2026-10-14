@@ -1,0 +1,12 @@
+# 允许清单：只用于 sync-local.sh 中“fork/dison/prod 有本地尚未纳入的提交”检查的放行。
+#
+# 什么时候加：手工解完 rebase 冲突后，某个远端提交的补丁因采用上游等价实现
+# 而被改写，--cherry-pick 判定不等价，但已人工核对“意图已并入、没有丢改动”。
+# 怎么核对： git range-diff fork/dison/prod...HEAD 逐对比对，或 git show <SHA>。
+# 格式：逐行一个完整 40 位 SHA（无其他内容），'#' 开头的行忽略。
+# 推送成功后条目不会再匹配（远端已被新历史替换），留着无害。
+#
+# 2026-10-14 企业微信提交：user.go 的禁用校验采用上游更强的等价实现（account is
+# disabled），SystemSettings.vue 适配上游新标签页结构后 WeComBindings 仍挂载；
+# range-diff 核对其余文件补丁等价或内容一致，无定制丢失。
+9234a1207940d48e289800babee2b1bf0668b70a
