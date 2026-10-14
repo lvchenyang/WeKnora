@@ -196,6 +196,26 @@ npm run build
 
 本次未修改已执行的 up migration，没有新增数据库版本。将修复版源码/镜像中的回滚脚本与 `dison/sync-local.sh` 一并更新即可；正常升级无需运行下面的回滚 SQL，不会主动撤销当前线上会话。只更新本机同步脚本不会替换旧镜像内的迁移文件，回退时必须使用本次修复后的 down 文件。
 
+### 迁移编号变更（`000115`/`000034` → `000119`/`000037`）
+
+上游在同期发布了同号段的 PostgreSQL `000115_pg_search_02511` 与 SQLite `000034_mcp_metadata`。golang-migrate 遇到重复版本号会拒绝加载整个迁移目录（所有部署都无法迁移），因此本仓库把企业微信迁移改号为 PostgreSQL `000119`、SQLite `000037`，文件内容与原 `000115` / `000034` 完全一致。
+
+- 线上库**未执行过**旧编号的 `000115_wecom_login` / `000034_wecom_login`（全新库，或停在上游 `000114` / `000033` 及更早）：无需处理，升级后迁移按新编号正常执行。
+- 线上库**已执行过**旧编号（曾部署过含企业微信功能的版本）：`schema_migrations` 中记录的 `115` / `34` 会把上游同号迁移当作已执行而跳过，改号后的企业微信迁移（`119` / `37`）又会因表已存在而失败。部署新版本前先在数据库上修复——依次执行被跳过的上游文件，再把版本标到企业微信迁移的新编号：
+
+  ```bash
+  # 服务器执行：仓库目录内，四个上游文件按顺序执行（容器内已带 POSTGRES_USER/POSTGRES_DB）
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < migrations/versioned/000115_pg_search_02511.up.sql
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < migrations/versioned/000116_agent_allowed_tools_explicit_defaults.up.sql
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < migrations/versioned/000117_messages_attachment_lookup.up.sql
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < migrations/versioned/000118_mcp_oauth_timestamp_tz.up.sql
+  docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "UPDATE schema_migrations SET version = 119, dirty = false;"'
+  ```
+
+  SQLite 部署则把 `migrations/sqlite/000034_mcp_metadata`、`000035`、`000036` 三个 up 文件依次执行，并 `UPDATE schema_migrations SET version = 37, dirty = false;`。
+
+  如果已经以新版本启动过并停在 dirty 状态，先核对上述迁移内容均已生效，再用 `scripts/migrate.sh force 119`（SQLite 为 `37`）清除脏标记后重启。
+
 ### 安全回退到不支持企业微信的版本
 
 旧版本不会检查企业微信身份来源，**仅关闭 `WECOM_AUTH_ENABLED` 不足以安全回退**。无论是否执行 down migration，均按以下顺序操作：
