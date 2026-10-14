@@ -59,9 +59,9 @@ func wecomDB(t *testing.T) *gorm.DB {
 			t.Fatal(err)
 		}
 	}
-	path := "../../../migrations/sqlite/000034_wecom_login.up.sql"
+	path := "../../../migrations/sqlite/000037_wecom_login.up.sql"
 	if pgDSN != "" {
-		path = "../../../migrations/versioned/000115_wecom_login.up.sql"
+		path = "../../../migrations/versioned/000119_wecom_login.up.sql"
 	}
 	migration, err := os.ReadFile(path)
 	if err != nil {
@@ -313,9 +313,9 @@ func TestWeComSwitchCannotSubstituteAnotherSession(t *testing.T) {
 
 func TestWeComMigrationRollbackPreservesAccounts(t *testing.T) {
 	db := wecomDB(t)
-	path := "../../../migrations/sqlite/000034_wecom_login.down.sql"
+	path := "../../../migrations/sqlite/000037_wecom_login.down.sql"
 	if os.Getenv("WECOM_TEST_POSTGRES_DSN") != "" {
-		path = "../../../migrations/versioned/000115_wecom_login.down.sql"
+		path = "../../../migrations/versioned/000119_wecom_login.down.sql"
 	}
 	sql, err := os.ReadFile(path)
 	if err != nil {
@@ -371,9 +371,9 @@ func TestWeComMigrationRollbackRevokesExternalSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	externalTokens := []*types.AuthToken{access, refresh, inconsistent}
-	prefix := "../../../migrations/sqlite/000034_wecom_login"
+	prefix := "../../../migrations/sqlite/000037_wecom_login"
 	if os.Getenv("WECOM_TEST_POSTGRES_DSN") != "" {
-		prefix = "../../../migrations/versioned/000115_wecom_login"
+		prefix = "../../../migrations/versioned/000119_wecom_login"
 	}
 	for _, direction := range []string{"down", "up"} {
 		sql, err := os.ReadFile(prefix + "." + direction + ".sql")
